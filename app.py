@@ -4,15 +4,56 @@ import pandas as pd
 import tensorflow as tf
 import joblib
 import matplotlib.pyplot as plt
+import os
 
 # ======================================================
-# KONFIGURASI HALAMAN
+# PAGE CONFIG
 # ======================================================
 st.set_page_config(
     page_title="Prediksi Penjualan Produk Nike",
     page_icon="📊",
     layout="wide"
 )
+
+# ======================================================
+# CUSTOM CSS (UI ENHANCEMENT)
+# ======================================================
+st.markdown("""
+<style>
+.main { background-color: #f7f9fc; }
+
+.card {
+    background-color: white;
+    padding: 20px;
+    border-radius: 14px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+    margin-bottom: 20px;
+}
+
+.pred-box {
+    background: linear-gradient(90deg, #111827, #1f2937);
+    color: white;
+    padding: 28px;
+    border-radius: 16px;
+    text-align: center;
+}
+
+.badge {
+    display: inline-block;
+    padding: 6px 14px;
+    border-radius: 999px;
+    font-size: 13px;
+    background-color: #e5e7eb;
+    margin-top: 8px;
+}
+
+.section-title {
+    font-size: 22px;
+    font-weight: 700;
+    margin-bottom: 12px;
+}
+</style>
+""", unsafe_allow_html=True)
 
 # ======================================================
 # HEADER + LOGO
@@ -22,34 +63,35 @@ col_logo, col_title = st.columns([1, 4])
 with col_logo:
     st.image(
         "https://upload.wikimedia.org/wikipedia/commons/a/a6/Logo_NIKE.svg",
-        width=120
+        width=110
     )
 
 with col_title:
     st.title("Prediksi Penjualan Produk Nike")
     st.markdown(
-        "Menggunakan Algoritma *Random Forest* dan "
-        "*Long Short-Term Memory (LSTM)*"
+        "Menggunakan Algoritma **Random Forest** dan "
+        "**Long Short-Term Memory (LSTM)**"
     )
 
 st.markdown("---")
 
 # ======================================================
-# LOAD MODEL & SCALER (LSTM)
+# LOAD MODEL & SCALER (SAFE FOR STREAMLIT CLOUD)
 # ======================================================
 @st.cache_resource
 def load_model():
-    model = tf.keras.models.load_model(
-        "model/model_lstm.h5",
-        compile=False
-    )
-    scaler = joblib.load("model/scaler.pkl")
+    model_path = os.path.join("model", "model_lstm.h5")
+    scaler_path = os.path.join("model", "scaler.pkl")
+
+    model = tf.keras.models.load_model(model_path, compile=False)
+    scaler = joblib.load(scaler_path)
+
     return model, scaler
 
 model, scaler = load_model()
 
 # ======================================================
-# LOAD & NORMALISASI DATASET
+# LOAD & NORMALIZE DATASET
 # ======================================================
 @st.cache_data
 def load_data():
@@ -69,9 +111,9 @@ def load_data():
 
     df = df.rename(columns=rename_map)
     df = df.loc[:, ~df.columns.duplicated()]
-    df["date"] = pd.to_datetime(df["date"], dayfirst=True, errors="coerce")
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
 
-    return df
+    return df.dropna(subset=["date", "state", "product_name", "quantity_sold"])
 
 df = load_data()
 
@@ -81,18 +123,18 @@ df = load_data()
 st.sidebar.header("🔎 Filter Data")
 
 state = st.sidebar.selectbox(
-    "State (Wilayah Penjualan)",
-    sorted(df["state"].dropna().unique())
+    "State / Wilayah",
+    sorted(df["state"].unique())
 )
 
 product = st.sidebar.selectbox(
     "Produk",
-    sorted(df["product_name"].dropna().unique())
+    sorted(df["product_name"].unique())
 )
 
 year = st.sidebar.selectbox(
     "Tahun",
-    sorted(df["date"].dt.year.dropna().unique())
+    sorted(df["date"].dt.year.unique())
 )
 
 # ======================================================
@@ -107,7 +149,8 @@ filtered_df = df[
 # ======================================================
 # RINGKASAN PENJUALAN
 # ======================================================
-st.subheader("📦 Ringkasan Penjualan")
+st.markdown('<div class="card">', unsafe_allow_html=True)
+st.markdown('<div class="section-title">📦 Ringkasan Penjualan</div>', unsafe_allow_html=True)
 
 total_unit = int(filtered_df["quantity_sold"].sum())
 
@@ -119,14 +162,14 @@ with c2:
 with c3:
     st.metric("Total Unit Terjual", f"{total_unit:,} unit")
 
+st.markdown('</div>', unsafe_allow_html=True)
+
 # ======================================================
 # DATA HISTORIS
 # ======================================================
 with st.expander("📄 Lihat Data Penjualan Historis"):
     st.dataframe(
-        filtered_df[
-            ["date", "state", "product_name", "quantity_sold"]
-        ],
+        filtered_df[["date", "state", "product_name", "quantity_sold"]],
         use_container_width=True
     )
 
@@ -136,118 +179,83 @@ with st.expander("📄 Lihat Data Penjualan Historis"):
 st.markdown("---")
 st.subheader("🔮 Prediksi Penjualan Periode Berikutnya")
 
-history_values = filtered_df["quantity_sold"].tolist()
+history = filtered_df["quantity_sold"].tolist()
 WINDOW_SIZE = 10
-data_cukup = len(history_values) >= WINDOW_SIZE
 
-if not data_cukup:
-    st.warning(
-        f"Data historis belum mencukupi "
-        f"(minimal {WINDOW_SIZE} periode)"
-    )
+if len(history) < WINDOW_SIZE:
+    st.warning(f"Data historis minimal {WINDOW_SIZE} periode untuk prediksi.")
+else:
+    if st.button("🚀 Jalankan Prediksi"):
+        seq = np.array(history[-WINDOW_SIZE:]).reshape(-1, 1)
+        seq_scaled = scaler.transform(seq).reshape(1, WINDOW_SIZE, 1)
 
-if st.button(
-    "🔮 Prediksi Penjualan",
-    disabled=not data_cukup
-):
-    # Ambil sequence terakhir
-    sequence = history_values[-WINDOW_SIZE:]
+        prediction = model.predict(seq_scaled)
+        pred_value = int(scaler.inverse_transform(prediction)[0][0])
 
-    seq_scaled = scaler.transform(
-        np.array(sequence).reshape(-1, 1)
-    )
-    seq_scaled = seq_scaled.reshape(1, WINDOW_SIZE, 1)
+        # ===============================
+        # HIGHLIGHT RESULT
+        # ===============================
+        st.markdown(f"""
+        <div class="pred-box">
+            <h2>📈 Prediksi Penjualan Berikutnya</h2>
+            <h1>{pred_value:,} unit</h1>
+            <div class="badge">
+                Berdasarkan {WINDOW_SIZE} periode terakhir
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
-    prediction = model.predict(seq_scaled)
-    pred_value = int(
-        scaler.inverse_transform(prediction)[0][0]
-    )
+        # ===============================
+        # GRAFIK
+        # ===============================
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.subheader("📉 Grafik Tren Penjualan")
 
-    # ===============================
-    # HASIL PREDIKSI (DITONJOLKAN)
-    # ===============================
-    st.success(
-        f"📈 Prediksi penjualan periode berikutnya: "
-        f"{pred_value:,} unit**"
-    )
+        trend_values = history + [pred_value]
+        period = list(range(1, len(trend_values) + 1))
 
-    # ===============================
-    # GRAFIK TREN + PREDIKSI
-    # ===============================
-    st.subheader("📉 Grafik Tren Penjualan")
+        fig, ax = plt.subplots(figsize=(10, 4))
+        ax.plot(period[:-1], trend_values[:-1], marker="o", label="Data Historis")
+        ax.scatter(period[-1], trend_values[-1], color="red", s=120, label="Prediksi")
+        ax.plot(period, trend_values, linestyle="--", alpha=0.4)
 
-    trend_values = history_values + [pred_value]
-    periode = list(range(1, len(trend_values) + 1))
+        ax.set_xlabel("Periode")
+        ax.set_ylabel("Unit Terjual")
+        ax.set_title("Tren Penjualan Produk Nike")
+        ax.legend()
 
-    fig, ax = plt.subplots(figsize=(10, 4))
+        st.pyplot(fig)
+        st.markdown('</div>', unsafe_allow_html=True)
 
-    ax.plot(
-        periode[:-1],
-        trend_values[:-1],
-        marker="o",
-        label="Data Historis"
-    )
+        # ===============================
+        # PENJELASAN HASIL
+        # ===============================
+        diff = pred_value - history[-1]
+        trend = "meningkat 📈" if diff > 0 else "menurun 📉" if diff < 0 else "stabil ➖"
 
-    ax.scatter(
-        periode[-1],
-        trend_values[-1],
-        color="red",
-        s=120,
-        label="Prediksi"
-    )
+        st.subheader("📝 Penjelasan Hasil Prediksi")
+        st.write(f"""
+        Grafik menunjukkan pola penjualan **{product}**
+        di wilayah **{state}** pada tahun **{year}**.
 
-    ax.plot(
-        periode,
-        trend_values,
-        linestyle="--",
-        alpha=0.4
-    )
+        Berdasarkan pola historis tersebut, model **LSTM**
+        memprediksi bahwa penjualan periode berikutnya
+        akan **{trend}** dengan estimasi **{pred_value:,} unit**.
 
-    ax.set_xlabel("Periode")
-    ax.set_ylabel("Jumlah Unit Terjual")
-    ax.set_title("Tren Penjualan Produk Nike")
-    ax.legend()
-
-    st.pyplot(fig)
-
-    # ===============================
-    # PENJELASAN HASIL GRAFIK
-    # ===============================
-    st.subheader("📝 Penjelasan Hasil Prediksi")
-
-    trend_diff = pred_value - history_values[-1]
-
-    if trend_diff > 0:
-        trend_text = "meningkat"
-    elif trend_diff < 0:
-        trend_text = "menurun"
-    else:
-        trend_text = "cenderung stabil"
-
-    st.write(f"""
-    Grafik di atas menunjukkan pola penjualan produk *{product}*
-    di wilayah *{state}* pada tahun *{year}* berdasarkan data historis.
-
-    Berdasarkan pola tersebut, model *LSTM* memprediksi bahwa
-    penjualan pada periode berikutnya akan *{trend_text}*
-    dengan estimasi sebesar *{pred_value:,} unit*.
-
-    Titik merah pada grafik merepresentasikan hasil prediksi,
-    sedangkan garis biru menunjukkan data penjualan historis.
-    """)
+        Titik merah menandakan hasil prediksi,
+        sedangkan garis biru adalah data historis.
+        """)
 
 # ======================================================
 # METODOLOGI
 # ======================================================
 with st.expander("📚 Penjelasan Metodologi"):
-    st.write("""
-    - Dataset penjualan produk Nike periode 2020–2021 digunakan
-      sebagai data historis.
-    - Algoritma *Random Forest* digunakan sebagai model pembanding
-      pada tahap eksperimen.
-    - Algoritma *LSTM* digunakan sebagai model utama karena mampu
-      menangkap pola time series penjualan.
-    - Prediksi dilakukan berdasarkan 10 periode penjualan terakhir.
+    st.markdown("""
+    - Dataset penjualan Nike periode 2020–2021  
+    - *Random Forest* digunakan sebagai pembanding eksperimen  
+    - *LSTM* digunakan sebagai model utama time series  
+    - Window size: **10 periode terakhir**  
+    - Output: prediksi penjualan periode berikutnya  
     """)
 
 # ======================================================
@@ -255,7 +263,6 @@ with st.expander("📚 Penjelasan Metodologi"):
 # ======================================================
 st.markdown("---")
 st.caption(
-    "Aplikasi ini merupakan hasil deployment model Deep Learning "
-    "untuk prediksi penjualan produk Nike menggunakan Streamlit."
-
+    "© 2025 | Deployment Model Deep Learning "
+    "Prediksi Penjualan Produk Nike menggunakan Streamlit"
 )
