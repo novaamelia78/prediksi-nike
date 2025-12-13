@@ -4,88 +4,73 @@ import pandas as pd
 import tensorflow as tf
 import joblib
 import matplotlib.pyplot as plt
-import os
 
-# =========================
+# =====================================================
 # PAGE CONFIG
-# =========================
+# =====================================================
 st.set_page_config(
-    page_title="Nike Sales Prediction",
+    page_title="Prediksi Penjualan Produk Nike",
     page_icon="👟",
     layout="wide"
 )
 
-# =========================
-# GLOBAL STYLE (BENERAN BERASA)
-# =========================
+# =====================================================
+# GLOBAL STYLE (LIGHT DASHBOARD)
+# =====================================================
 st.markdown("""
 <style>
-body {
-    background-color: #f4f6f9;
-}
-.hero {
-    background: linear-gradient(90deg, #000000, #1f2937);
-    padding: 40px;
-    border-radius: 20px;
-    color: white;
-}
-.hero h1 {
-    font-size: 42px;
-    margin-bottom: 5px;
-}
-.hero p {
-    font-size: 18px;
-    color: #d1d5db;
-}
+body { background-color: #f8fafc; }
 .card {
     background: white;
-    padding: 22px;
-    border-radius: 16px;
-    box-shadow: 0 10px 25px rgba(0,0,0,0.08);
+    padding: 26px;
+    border-radius: 18px;
+    border: 1px solid #e5e7eb;
     margin-bottom: 20px;
 }
-.kpi {
-    text-align: center;
-}
-.kpi h2 {
-    font-size: 32px;
-    margin: 0;
-}
-.kpi p {
-    color: #6b7280;
-    margin: 0;
+.section-title {
+    font-size: 26px;
+    font-weight: 700;
+    margin-bottom: 12px;
 }
 .pred-box {
-    background: linear-gradient(135deg, #111827, #2563eb);
-    color: white;
-    padding: 30px;
-    border-radius: 20px;
+    background: linear-gradient(135deg, #e0e7ff, #f8fafc);
+    border: 2px solid #6366f1;
+    padding: 32px;
+    border-radius: 22px;
     text-align: center;
 }
-.info-box {
-    background: #eef2ff;
-    padding: 18px;
-    border-radius: 14px;
-    border-left: 6px solid #4f46e5;
+.analysis-box {
+    background: #f1f5f9;
+    border-left: 6px solid #6366f1;
+    padding: 22px;
+    border-radius: 16px;
 }
 </style>
 """, unsafe_allow_html=True)
 
-# =========================
-# HERO SECTION
-# =========================
-st.markdown("""
-<div class="hero">
-    <h1>👟 Prediksi Penjualan Produk Nike</h1>
-    <p>Analisis & Prediksi Penjualan Menggunakan Random Forest dan LSTM</p>
-</div>
-""", unsafe_allow_html=True)
+# =====================================================
+# HEADER (LOGO AMAN)
+# =====================================================
+col1, col2 = st.columns([1, 6])
+with col1:
+    st.image(
+        "https://upload.wikimedia.org/wikipedia/commons/a/a6/Logo_NIKE.svg",
+        width=120
+    )
+with col2:
+    st.markdown("""
+    <h1>Prediksi Penjualan Produk Nike</h1>
+    <p>
+    Menggunakan Algoritma <b>Random Forest</b> dan
+    <b>Long Short-Term Memory (LSTM)</b>
+    </p>
+    """, unsafe_allow_html=True)
 
-st.markdown("<br>", unsafe_allow_html=True)
+st.divider()
 
-# =========================
+# =====================================================
 # LOAD MODEL
-# =========================
+# =====================================================
 @st.cache_resource
 def load_model():
     model = tf.keras.models.load_model("model/model_lstm.h5", compile=False)
@@ -94,9 +79,9 @@ def load_model():
 
 model, scaler = load_model()
 
-# =========================
+# =====================================================
 # LOAD DATA
-# =========================
+# =====================================================
 @st.cache_data
 def load_data():
     df = pd.read_csv("Nike Dataset.csv")
@@ -116,16 +101,14 @@ def load_data():
     df = df.rename(columns=rename_map)
     df = df.loc[:, ~df.columns.duplicated()]
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
-
     return df.dropna()
 
 df = load_data()
 
-# =========================
+# =====================================================
 # SIDEBAR FILTER
-# =========================
-st.sidebar.title("🔎 Filter Data")
-
+# =====================================================
+st.sidebar.header("🔎 Filter Data")
 state = st.sidebar.selectbox("Wilayah", sorted(df["state"].unique()))
 product = st.sidebar.selectbox("Produk", sorted(df["product_name"].unique()))
 year = st.sidebar.selectbox("Tahun", sorted(df["date"].dt.year.unique()))
@@ -136,106 +119,90 @@ filtered_df = df[
     (df["date"].dt.year == year)
 ].sort_values("date")
 
-# =========================
-# KPI CARDS
-# =========================
+# =====================================================
+# KPI
+# =====================================================
+st.markdown('<div class="section-title">📊 Ringkasan Penjualan</div>', unsafe_allow_html=True)
 total_unit = int(filtered_df["quantity_sold"].sum())
 
 c1, c2, c3 = st.columns(3)
-with c1:
-    st.markdown(f"""
-    <div class="card kpi">
-        <p>Wilayah</p>
-        <h2>{state}</h2>
-    </div>
-    """, unsafe_allow_html=True)
+c1.metric("Wilayah", state)
+c2.metric("Produk", product)
+c3.metric("Total Unit Terjual", f"{total_unit:,} unit")
 
-with c2:
-    st.markdown(f"""
-    <div class="card kpi">
-        <p>Produk</p>
-        <h2>{product}</h2>
-    </div>
-    """, unsafe_allow_html=True)
-
-with c3:
-    st.markdown(f"""
-    <div class="card kpi">
-        <p>Total Terjual</p>
-        <h2>{total_unit:,}</h2>
-    </div>
-    """, unsafe_allow_html=True)
-
-# =========================
-# HISTORICAL DATA
-# =========================
+# =====================================================
+# DATA
+# =====================================================
 with st.expander("📄 Data Penjualan Historis"):
     st.dataframe(filtered_df, use_container_width=True)
 
-# =========================
-# PREDICTION
-# =========================
-st.markdown("<br>", unsafe_allow_html=True)
-st.subheader("🔮 Prediksi Penjualan")
+# =====================================================
+# PREDIKSI
+# =====================================================
+st.markdown('<div class="section-title">🔮 Prediksi Penjualan</div>', unsafe_allow_html=True)
 
 WINDOW_SIZE = 10
 history = filtered_df["quantity_sold"].tolist()
 
 if len(history) < WINDOW_SIZE:
-    st.warning("Data tidak cukup untuk prediksi (minimal 10 periode).")
+    st.warning("Data historis belum cukup untuk prediksi.")
 else:
     if st.button("🚀 Jalankan Prediksi"):
         seq = np.array(history[-WINDOW_SIZE:]).reshape(-1, 1)
         seq_scaled = scaler.transform(seq).reshape(1, WINDOW_SIZE, 1)
-
         pred = model.predict(seq_scaled)
         pred_value = int(scaler.inverse_transform(pred)[0][0])
 
-        # =========================
-        # PREDICTION BOX
-        # =========================
         st.markdown(f"""
         <div class="pred-box">
+            <h2>Prediksi Penjualan Periode Berikutnya</h2>
             <h1>{pred_value:,} Unit</h1>
-            <p>Prediksi Penjualan Periode Berikutnya</p>
         </div>
         """, unsafe_allow_html=True)
 
-        # =========================
-        # TREND GRAPH
-        # =========================
         fig, ax = plt.subplots(figsize=(10, 4))
         values = history + [pred_value]
-
-        ax.plot(values[:-1], label="Historis", linewidth=3)
+        ax.plot(values[:-1], linewidth=3, label="Historis")
         ax.scatter(len(values)-1, values[-1], color="red", s=120, label="Prediksi")
         ax.plot(values, linestyle="--", alpha=0.4)
-
-        ax.set_title("Tren Penjualan")
         ax.set_ylabel("Unit Terjual")
+        ax.set_title("Tren Penjualan Produk Nike")
         ax.legend()
-
         st.pyplot(fig)
 
-        # =========================
-        # EXPLANATION BOX
-        # =========================
-        diff = pred_value - history[-1]
-        trend = "meningkat" if diff > 0 else "menurun" if diff < 0 else "stabil"
+        trend = "meningkat" if pred_value > history[-1] else "menurun" if pred_value < history[-1] else "stabil"
 
         st.markdown(f"""
-        <div class="info-box">
-            <b>Interpretasi Hasil:</b><br><br>
-            Model <b>LSTM</b> mempelajari pola penjualan historis produk
-            <b>{product}</b> di wilayah <b>{state}</b> pada tahun <b>{year}</b>.
-            <br><br>
-            Hasil prediksi menunjukkan tren penjualan <b>{trend}</b> dengan
-            estimasi <b>{pred_value:,} unit</b> pada periode berikutnya.
+        <div class="analysis-box">
+        <b>Interpretasi Grafik:</b><br><br>
+        Grafik menunjukkan pola penjualan produk <b>{product}</b>
+        di wilayah <b>{state}</b> pada tahun <b>{year}</b>.
+        Model <b>LSTM</b> memprediksi tren penjualan <b>{trend}</b>
+        dengan estimasi <b>{pred_value:,} unit</b> pada periode berikutnya.
         </div>
         """, unsafe_allow_html=True)
 
-# =========================
+# =====================================================
+# PENJELASAN ALGORITMA (BALIK LAGI)
+# =====================================================
+with st.expander("📚 Penjelasan Algoritma yang Digunakan"):
+    st.markdown("""
+    **1. Random Forest**  
+    Digunakan pada tahap eksperimen sebagai model pembanding.
+    Random Forest mampu menangkap hubungan non-linear antar fitur,
+    namun kurang optimal untuk data deret waktu.
+
+    **2. Long Short-Term Memory (LSTM)**  
+    Digunakan sebagai model utama pada deployment karena
+    mampu mempelajari pola berurutan (time series) penjualan.
+    Model LSTM memanfaatkan 10 periode terakhir untuk
+    memprediksi penjualan periode selanjutnya.
+    """)
+
+# =====================================================
 # FOOTER
-# =========================
-st.markdown("<br><hr>", unsafe_allow_html=True)
-st.caption("© 2025 | Nike Sales Prediction Dashboard | Streamlit Deployment")
+# =====================================================
+st.divider()
+st.caption(
+    "© 2025 | Dashboard Prediksi Penjualan Produk Nike | Streamlit Cloud"
+)
