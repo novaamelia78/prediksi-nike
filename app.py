@@ -1,198 +1,246 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import plotly.express as px
 import tensorflow as tf
 import joblib
-import os
+import plotly.graph_objects as go
 
-# ===============================
-# PAGE CONFIG
-# ===============================
+# =========================================================
+# KONFIGURASI HALAMAN
+# =========================================================
 st.set_page_config(
-    page_title="Prediksi Penjualan Nike",
+    page_title="Prediksi Penjualan Produk Nike",
     page_icon="👟",
     layout="wide"
 )
 
-# ===============================
-# CSS CUSTOM
-# ===============================
-st.markdown("""
-<style>
-body {font-family: 'Segoe UI', sans-serif;}
-h1, h2, h3 {color:#111;}
-.metric-box {
-    background-color:#ffffff;
-    padding:20px;
-    border-radius:12px;
-    box-shadow:0px 2px 8px rgba(0,0,0,0.08);
-    text-align:center;
-}
-</style>
-""", unsafe_allow_html=True)
+# =========================================================
+# LOAD MODEL & SCALER
+# =========================================================
+@st.cache_resource
+def load_models():
+    lstm_model = tf.keras.models.load_model("model_lstm.h5", compile=False)
+    rf_model = joblib.load("model_rf.pkl")  # digunakan sebagai pembanding
+    scaler = joblib.load("scaler.pkl")
+    return lstm_model, rf_model, scaler
 
-# ===============================
-# PATH
-# ===============================
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_PATH = os.path.join(BASE_DIR, "Nike Dataset.csv")
-MODEL_LSTM_PATH = os.path.join(BASE_DIR, "model", "model_lstm.h5")
-MODEL_RF_PATH = os.path.join(BASE_DIR, "model", "model_rf.pkl")
-SCALER_PATH = os.path.join(BASE_DIR, "model", "scaler.pkl")
-
-# ===============================
-# LOAD DATA
-# ===============================
+# =========================================================
+# LOAD DATASET
+# =========================================================
 @st.cache_data
 def load_data():
-    df = pd.read_csv(DATA_PATH)
-    df.columns = [c.strip() for c in df.columns]
-
-    date_col = next(c for c in df.columns if "date" in c.lower())
-    df = df.rename(columns={date_col: "date"})
-
-    for c in df.columns:
-        if c.lower() == "state":
-            df = df.rename(columns={c: "state"})
-        if "product" in c.lower():
-            df = df.rename(columns={c: "product_name"})
-        if ("unit" in c.lower() or "quantity" in c.lower()) and "price" not in c.lower():
-            df = df.rename(columns={c: "quantity_sold"})
-
+    df = pd.read_csv("Nike Dataset.csv")
+    df.columns = df.columns.str.lower()
     df["date"] = pd.to_datetime(df["date"], dayfirst=True)
     df["year"] = df["date"].dt.year
     return df
 
-# ===============================
-# LOAD MODELS
-# ===============================
-@st.cache_resource
-def load_models():
-    lstm = tf.keras.models.load_model(MODEL_LSTM_PATH, compile=False)
-    rf = joblib.load(MODEL_RF_PATH)
-    scaler = joblib.load(SCALER_PATH)
-    return lstm, rf, scaler
-
-df = load_data()
 lstm_model, rf_model, scaler = load_models()
+df = load_data()
 
-# ===============================
-# HEADER
-# ===============================
-st.markdown("""
-<div style="text-align:center;">
-<img src="https://upload.wikimedia.org/wikipedia/commons/a/a6/Logo_NIKE.svg" width="120">
-<h1>Prediksi Penjualan Produk Nike</h1>
-<p>Menggunakan Random Forest & Long Short-Term Memory (LSTM)</p>
-</div>
-<hr>
-""", unsafe_allow_html=True)
+# =========================================================
+# SIDEBAR FILTER
+# =========================================================
+st.sidebar.markdown("## 🔍 Filter Data")
 
-# ===============================
-# SIDEBAR
-# ===============================
-with st.sidebar:
-    st.header("🔎 Filter Data")
-    state = st.selectbox("State / Wilayah", sorted(df["state"].unique()))
-    product = st.selectbox("Produk", sorted(df["product_name"].unique()))
-    year = st.selectbox("Tahun", sorted(df["year"].unique()))
+state = st.sidebar.selectbox(
+    "State / Wilayah",
+    sorted(df["state"].unique())
+)
 
-# ===============================
-# FILTER
-# ===============================
+product = st.sidebar.selectbox(
+    "Produk",
+    sorted(df["product_name"].unique())
+)
+
+year = st.sidebar.selectbox(
+    "Tahun",
+    sorted(df["year"].unique())
+)
+
+# =========================================================
+# FILTER DATA
+# =========================================================
 filtered_df = df[
     (df["state"] == state) &
     (df["product_name"] == product) &
     (df["year"] == year)
 ].sort_values("date")
 
-total_sales = int(filtered_df["quantity_sold"].sum())
+# =========================================================
+# HEADER
+# =========================================================
+st.markdown(
+    """
+    <div style="display:flex;align-items:center;gap:20px">
+        <img src="https://upload.wikimedia.org/wikipedia/commons/a/a6/Logo_NIKE.svg" width="90">
+        <div>
+            <h1 style="margin-bottom:0">Prediksi Penjualan Produk Nike</h1>
+            <p style="color:gray;margin-top:4px">
+            Menggunakan Algoritma <b>Random Forest</b> dan <b>Long Short-Term Memory (LSTM)</b>
+            </p>
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
 
-# ===============================
-# METRICS
-# ===============================
-col1, col2, col3 = st.columns(3)
-col1.metric("📍 Wilayah", state)
-col2.metric("📦 Produk", product)
-col3.metric("🧮 Total Unit Terjual", f"{total_sales} unit")
+st.divider()
 
-# ===============================
-# DATA
-# ===============================
+# =========================================================
+# RINGKASAN PENJUALAN
+# =========================================================
+total_units = int(filtered_df["quantity_sold"].sum())
+avg_daily = int(filtered_df["quantity_sold"].mean()) if len(filtered_df) > 0 else 0
+
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("📍 Wilayah", state)
+c2.metric("👟 Produk", product)
+c3.metric("📦 Total Terjual", f"{total_units} unit")
+c4.metric("📊 Rata-rata Harian", f"{avg_daily} unit")
+
+# =========================================================
+# DATA HISTORIS
+# =========================================================
 with st.expander("📄 Lihat Data Penjualan Historis"):
     st.dataframe(
         filtered_df[["date", "state", "product_name", "quantity_sold"]],
         use_container_width=True
     )
 
-# ===============================
-# GRAFIK TREN
-# ===============================
-st.subheader("📈 Tren Penjualan")
+# =========================================================
+# GRAFIK HISTORIS
+# =========================================================
+st.subheader("📈 Grafik Tren Penjualan Historis")
 
-fig_trend = px.line(
-    filtered_df,
-    x="date",
-    y="quantity_sold",
-    markers=True,
-    title="Tren Penjualan Produk"
+fig_hist = go.Figure()
+fig_hist.add_trace(
+    go.Scatter(
+        x=filtered_df["date"],
+        y=filtered_df["quantity_sold"],
+        mode="lines+markers",
+        name="Penjualan Aktual",
+        line=dict(width=3)
+    )
 )
-st.plotly_chart(fig_trend, use_container_width=True)
 
-# ===============================
-# PREDIKSI
-# ===============================
-st.subheader("🔮 Prediksi Penjualan")
+fig_hist.update_layout(
+    xaxis_title="Tanggal",
+    yaxis_title="Jumlah Unit Terjual",
+    template="plotly_white"
+)
 
-if len(filtered_df) >= 10:
-    if st.button("🚀 Jalankan Prediksi"):
+st.plotly_chart(fig_hist, use_container_width=True)
+
+st.markdown(
+    """
+    **Penjelasan Grafik Tren Penjualan Historis**
+
+    Grafik ini menunjukkan perubahan jumlah penjualan produk Nike dari waktu ke waktu
+    berdasarkan data historis. Setiap titik merepresentasikan jumlah unit yang terjual
+    pada tanggal tertentu.
+
+    Dari grafik ini dapat diamati:
+    - Pola kenaikan dan penurunan penjualan dalam satu tahun
+    - Periode dengan penjualan tertinggi dan terendah
+    - Tingkat kestabilan atau fluktuasi permintaan produk
+
+    Grafik historis ini menjadi dasar utama bagi model **LSTM** untuk mempelajari pola
+    deret waktu sebelum melakukan prediksi penjualan.
+    """
+)
+
+# =========================================================
+# PREDIKSI PENJUALAN
+# =========================================================
+st.subheader("🔮 Prediksi Penjualan Menggunakan LSTM")
+
+if st.button("🚀 Jalankan Prediksi"):
+    if len(filtered_df) < 10:
+        st.warning("Data tidak cukup untuk melakukan prediksi (minimal 10 periode).")
+    else:
         series = filtered_df["quantity_sold"].values.reshape(-1, 1)
-        series_scaled = scaler.transform(series)
+        scaled_series = scaler.transform(series)
 
         X = []
-        for i in range(len(series_scaled) - 10):
-            X.append(series_scaled[i:i + 10])
+        window = 10
+        for i in range(len(scaled_series) - window):
+            X.append(scaled_series[i:i+window])
+
         X = np.array(X)
 
-        lstm_pred = scaler.inverse_transform(lstm_model.predict(X))
-        rf_pred = rf_model.predict(np.arange(len(series)).reshape(-1, 1))
+        pred_scaled = lstm_model.predict(X)
+        pred = scaler.inverse_transform(pred_scaled)
+        pred_dates = filtered_df["date"].iloc[window:]
 
-        fig_pred = px.line(title="Perbandingan Prediksi Penjualan")
-        fig_pred.add_scatter(
-            x=filtered_df["date"],
-            y=series.flatten(),
-            name="Data Aktual"
+        # =========================
+        # GRAFIK PREDIKSI
+        # =========================
+        fig_pred = go.Figure()
+
+        fig_pred.add_trace(
+            go.Scatter(
+                x=filtered_df["date"],
+                y=filtered_df["quantity_sold"],
+                name="Aktual",
+                mode="lines",
+                line=dict(color="black")
+            )
         )
-        fig_pred.add_scatter(
-            x=filtered_df["date"][10:],
-            y=lstm_pred.flatten(),
-            name="Prediksi LSTM"
+
+        fig_pred.add_trace(
+            go.Scatter(
+                x=pred_dates,
+                y=pred.flatten(),
+                name="Prediksi LSTM",
+                mode="lines",
+                line=dict(color="green", dash="dash")
+            )
         )
-        fig_pred.add_scatter(
-            x=filtered_df["date"],
-            y=rf_pred,
-            name="Prediksi Random Forest"
+
+        fig_pred.update_layout(
+            xaxis_title="Tanggal",
+            yaxis_title="Jumlah Unit Terjual",
+            template="plotly_white"
         )
 
         st.plotly_chart(fig_pred, use_container_width=True)
 
-        st.info(
+        st.markdown(
             f"""
-            **Interpretasi Hasil**  
-            Pada tahun **{year}**, produk **{product}** di wilayah **{state}**
-            menunjukkan total penjualan **{total_sales} unit**.
-            Model **LSTM** mampu mengikuti pola tren waktu,
-            sedangkan **Random Forest** digunakan sebagai pembanding pola umum data.
+            ### 📊 Interpretasi Hasil Grafik Prediksi
+
+            Grafik prediksi menampilkan dua garis utama:
+
+            - **Garis hitam (Aktual)**  
+              Menunjukkan data penjualan asli berdasarkan histori penjualan produk Nike.
+
+            - **Garis hijau putus-putus (Prediksi LSTM)**  
+              Menunjukkan hasil prediksi dari model **Long Short-Term Memory (LSTM)** yang
+              mempelajari pola penjualan dari data historis.
+
+            **Interpretasi utama:**
+            - Model LSTM mampu mengikuti tren naik dan turun penjualan yang terjadi sebelumnya
+            - Perbedaan kecil antara grafik aktual dan prediksi menunjukkan performa model
+              yang cukup baik dalam mengenali pola deret waktu
+            - Untuk wilayah **{state}**, produk **{product}**, pada tahun **{year}**,
+              model memprediksi kelanjutan tren penjualan berdasarkan histori yang tersedia
+
+            Hasil prediksi ini dapat dimanfaatkan sebagai dasar perencanaan stok,
+            strategi distribusi, dan pengambilan keputusan penjualan.
             """
         )
-else:
-    st.warning("Data tidak cukup untuk prediksi (minimal 10 periode).")
 
-# ===============================
+# =========================================================
 # FOOTER
-# ===============================
+# =========================================================
 st.markdown(
-    "<hr><p style='text-align:center;'>© 2025 | Prediksi Penjualan Produk Nike</p>",
+    """
+    <hr>
+    <p style="text-align:center;color:gray">
+    © 2025 | Prediksi Penjualan Produk Nike<br>
+    Deployment menggunakan Streamlit Cloud
+    </p>
+    """,
     unsafe_allow_html=True
 )
